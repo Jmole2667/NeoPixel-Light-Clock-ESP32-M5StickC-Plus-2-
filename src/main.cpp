@@ -181,12 +181,25 @@ void startWebServer() {
 void updateScreen() {
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextSize(2);
 
   if (WiFi.status() == WL_CONNECTED) {
-    M5.Lcd.println("WiFi Connected!");
-    M5.Lcd.println(WiFi.localIP());
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+      M5.Lcd.setTextSize(3);
+      char timeStr[6];
+      sprintf(timeStr, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+      M5.Lcd.setCursor(15, 0);
+      M5.Lcd.println(timeStr);
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setCursor(0, 30);
+      M5.Lcd.println(WiFi.localIP());
+    } else {
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.println("WiFi Connected");
+      M5.Lcd.println("Syncing time...");
+    }
   } else {
+    M5.Lcd.setTextSize(2);
     M5.Lcd.println("Setup Mode");
     M5.Lcd.println("Use AP");
   }
