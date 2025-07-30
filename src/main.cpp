@@ -1,4 +1,4 @@
-#include <M5StickCPlus2.h>
+#include <M5Unified.h>
 #include <Adafruit_NeoPixel.h>
 #include <WiFi.h>
 #include <time.h>
@@ -250,7 +250,7 @@ class WiFiCredsCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
 void setup() {
     M5.begin();
-    M5.Axp.SetLed(false); // Disable the built-in yellow LED
+    M5.Power.setLed(false); // Disable the built-in yellow LED
 
     strip.begin();
     strip.setBrightness(brightness);
@@ -302,7 +302,7 @@ void loop() {
     }
 
     // Check battery level
-    battery_level = constrain((int)map(M5.Axp.GetBatVoltage() * 1000, 3200, 4200, 0, 100), 0, 100);
+    battery_level = M5.Power.getBatteryLevel();
 
     // Show low battery warning every 5 minutes if critical
     if (battery_level <= 5 && millis() - last_battery_warning_time > 300000) {
