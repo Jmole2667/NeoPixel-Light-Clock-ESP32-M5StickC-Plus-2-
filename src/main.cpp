@@ -5,10 +5,6 @@
 #include <Preferences.h>
 #include <ESPAsyncWebServer.h>
 #include <DNSServer.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 #include <ArduinoJson.h>
 #include <vector>
 #include <algorithm>
@@ -21,13 +17,6 @@ Adafruit_NeoPixel strip(NUM_LEDS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 Preferences preferences;
 AsyncWebServer server(80);
 DNSServer dnsServer;
-
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define WIFI_CREDS_CHAR_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define IP_ADDRESS_CHAR_UUID "cba1d466-344c-4be3-ab3f-189f80dd7518"
-
-BLECharacteristic* pIpChar = nullptr;
-bool bleAdvertising = false;
 
 int brightness = 50;
 int battery_level = 0;
@@ -62,50 +51,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // ======= BLE WiFi Credentials Callback =======
-class WiFiCredsCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* pCharacteristic) {
-    std::string val = pCharacteristic->getValue();
-    if (val.length() > 0) {
-      int sep = val.find(';');
-      if (sep != std::string::npos) {
-        std::string ssid = val.substr(0, sep);
-        std::string password = val.substr(sep + 1);
-
-        preferences.putString("ssid", ssid.c_str());
-        preferences.putString("password", password.c_str());
-        preferences.end();
-
-        M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setCursor(0, 0);
-        M5.Lcd.setTextSize(2);
-        M5.Lcd.println("WiFi Saved!");
-        M5.Lcd.println("Restarting...");
-        delay(2000);
-        ESP.restart();
-      }
-    }
-  }
-};
-
-void startBLE() {
-  BLEDevice::init("NeoPixel Clock");
-  BLEServer* pServer = BLEDevice::createServer();
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-
-  BLECharacteristic* pWiFiCredsChar = pService->createCharacteristic(WIFI_CREDS_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pWiFiCredsChar->setCallbacks(new WiFiCredsCallbacks());
-
-  pIpChar = pService->createCharacteristic(IP_ADDRESS_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  pIpChar->addDescriptor(new BLE2902());
-
-  pService->start();
-
-  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  BLEDevice::startAdvertising();
-  bleAdvertising = true;
-}
+// BLE callback removed
 
 void startCaptivePortal() {
   M5.Lcd.fillScreen(BLACK);
@@ -115,9 +61,6 @@ void startCaptivePortal() {
   M5.Lcd.setTextSize(1);
   M5.Lcd.println("Connect to WiFi:");
   M5.Lcd.println("'NeoPixel-Clock-Setup'");
-  M5.Lcd.println("Or use BLE ('NeoPixel Clock')");
-
-  startBLE();
 
   WiFi.softAP("NeoPixel-Clock-Setup");
   dnsServer.start(53, "*", WiFi.softAPIP());
@@ -160,7 +103,6 @@ void startWebServer() {
     doc["ip"] = WiFi.localIP().toString();
     doc["battery"] = battery_level;
     doc["connection"] = WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected";
-    doc["ble"] = bleAdvertising ? "On" : "Off";
 
     JsonArray arr = doc.createNestedArray("timers");
     for (auto& t : timers) {
@@ -246,7 +188,7 @@ void updateScreen() {
     M5.Lcd.println(WiFi.localIP());
   } else {
     M5.Lcd.println("Setup Mode");
-    M5.Lcd.println("Use AP or BLE");
+    M5.Lcd.println("Use AP");
   }
   M5.Lcd.setTextSize(1);
   M5.Lcd.setCursor(0, 50);
@@ -329,7 +271,7 @@ unsigned long buttonPressStart = 0;
 bool resetting = false;
 
 void checkFactoryReset() {
-  if (M5.BtnP.isPressed()) {
+  if (M5.BtnA.isPressed()) {
     if (buttonPressStart == 0) {
       buttonPressStart = millis();
     } else {
@@ -389,13 +331,6 @@ void setup() {
       M5.Lcd.setTextSize(2);
       M5.Lcd.println("WiFi Connected!");
       M5.Lcd.println(WiFi.localIP());
-
-      if (bleAdvertising) {
-        BLEDevice::getAdvertising()->stop();
-        bleAdvertising = false;
-      }
-
-      pIpChar = nullptr;  // reset BLE IP char pointer to avoid stale data
 
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
       last_ntp_sync = millis();
