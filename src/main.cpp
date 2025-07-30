@@ -45,8 +45,152 @@ int nextTimerId = 0;
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
-<!-- your full HTML here -->
-<!-- For brevity, keep your existing index_html unchanged -->
+<head>
+<title>NeoPixel Clock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: Arial, sans-serif; background-color: #f0f0f0; margin: 20px; }
+  .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  h1, h2 { color: #333; }
+  .status, .control-group { margin-bottom: 20px; }
+  .status p, .timer { background: #eee; padding: 10px; border-radius: 4px; }
+  .timer { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .timer.finished { background-color: #d0d0d0; text-decoration: line-through; }
+  .timer-info { display: flex; align-items: center; }
+  .color-box { width: 20px; height: 20px; border-radius: 4px; margin-right: 10px; }
+  input[type=text], input[type=number], input[type=color], input[type=range] { width: calc(100% - 22px); padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; }
+  button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background-color: #0056b3; }
+  .danger { background-color: #dc3545; }
+  .danger:hover { background-color: #c82333; }
+  .action-btn { margin-left: 5px; padding: 5px 10px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>NeoPixel Clock Control</h1>
+
+  <div class="status">
+    <h2>Device Status</h2>
+    <p>IP Address: <span id="ip">...</span></p>
+    <p>Connection: <span id="connection">...</span></p>
+    <p>Battery: <span id="battery">...</span>%</p>
+  </div>
+
+  <div class="control-group">
+    <h2>Add Timer</h2>
+    <form id="addTimerForm">
+      <label for="duration">Duration (minutes):</label>
+      <input type="number" id="duration" name="duration" min="1" required>
+      <label for="color">Color:</label>
+      <input type="color" id="color" name="color" value="#ff0000">
+      <button type="submit">Add Timer</button>
+    </form>
+  </div>
+
+  <div class="control-group">
+    <h2>Timers</h2>
+    <div id="timersList"></div>
+  </div>
+
+  <div class="control-group">
+    <h2>Settings</h2>
+    <label for="brightness">Brightness:</label>
+    <input type="range" id="brightness" min="0" max="255" value="50">
+    <button id="reboot" class="danger">Reboot Device</button>
+  </div>
+</div>
+
+<script>
+function fetchStatus() {
+  fetch('/status')
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById('ip').textContent = data.ip;
+      document.getElementById('connection').textContent = data.connection;
+      document.getElementById('battery').textContent = data.battery;
+
+      const timersList = document.getElementById('timersList');
+      timersList.innerHTML = '';
+      if (data.timers.length === 0) {
+        timersList.innerHTML = '<p>No timers yet.</p>';
+      } else {
+        data.timers.forEach(t => {
+          const timerDiv = document.createElement('div');
+          timerDiv.className = 'timer' + (t.finished ? ' finished' : '');
+
+          let remaining = new Date(t.remainingTime).toISOString().substr(11, 8);
+          if (!t.active && !t.finished) remaining = "Paused";
+          if (t.finished) remaining = "Finished";
+
+          timerDiv.innerHTML = `
+            <div class="timer-info">
+              <div class="color-box" style="background-color:${t.color}"></div>
+              <span>${remaining}</span>
+            </div>
+            <div>
+              <button class="action-btn" onclick="toggleTimer(${t.id})" ${t.finished ? 'disabled' : ''}>${t.active ? 'Pause' : 'Resume'}</button>
+              <button class="action-btn danger" onclick="deleteTimer(${t.id})">Delete</button>
+            </div>
+          `;
+          timersList.appendChild(timerDiv);
+        });
+      }
+    });
+}
+
+function addTimer(e) {
+  e.preventDefault();
+  const duration = document.getElementById('duration').value;
+  const color = document.getElementById('color').value.substring(1); // remove #
+  fetch('/addTimer', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: `duration=${duration}&color=${color}`
+  }).then(fetchStatus);
+}
+
+function toggleTimer(id) {
+  fetch('/toggleTimer', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: `id=${id}`
+  }).then(fetchStatus);
+}
+
+function deleteTimer(id) {
+  if(confirm('Are you sure you want to delete this timer?')) {
+    fetch('/deleteTimer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `id=${id}`
+    }).then(fetchStatus);
+  }
+}
+
+function setBrightness(e) {
+  fetch('/setBrightness', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: `value=${e.target.value}`
+  });
+}
+
+function reboot() {
+  if(confirm('Are you sure you want to reboot?')) {
+    fetch('/reboot', { method: 'POST' });
+  }
+}
+
+document.getElementById('addTimerForm').addEventListener('submit', addTimer);
+document.getElementById('brightness').addEventListener('change', setBrightness);
+document.getElementById('reboot').addEventListener('click', reboot);
+
+setInterval(fetchStatus, 2000);
+window.onload = fetchStatus;
+</script>
+</div>
+</body>
 </html>
 )rawliteral";
 
@@ -266,6 +410,32 @@ void updateTimers() {
   }
 }
 
+// ----------- LED Animations ------------
+// Helper for rainbow animations
+uint32_t Wheel(byte WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) {
+    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if(WheelPos < 170) {
+    WheelPos -= 85;
+    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
+void rainbowCycle(uint8_t wait) {
+  uint16_t i, j;
+  for(j=0; j<256; j++) { // single cycle
+    for(i=0; i< strip.numPixels(); i++) {
+      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+    }
+    strip.show();
+    delay(wait);
+  }
+}
+
 // ----------- Factory Reset Support ------------
 unsigned long buttonPressStart = 0;
 bool resetting = false;
@@ -299,6 +469,8 @@ void setup() {
 
   strip.begin();
   strip.setBrightness(brightness);
+  rainbowCycle(5); // Boot animation
+  strip.clear();
   strip.show();
 
   M5.Lcd.setRotation(1);
@@ -317,7 +489,14 @@ void setup() {
 
     WiFi.begin(ssid.c_str(), password.c_str());
     int timeout = 20;
+    bool yellow_on = true;
     while (WiFi.status() != WL_CONNECTED && timeout > 0) {
+      strip.clear();
+      if (yellow_on) {
+        strip.fill(strip.Color(50, 50, 0)); // Dim Yellow
+      }
+      strip.show();
+      yellow_on = !yellow_on;
       delay(500);
       M5.Lcd.print(".");
       timeout--;
@@ -332,6 +511,12 @@ void setup() {
       M5.Lcd.println("WiFi Connected!");
       M5.Lcd.println(WiFi.localIP());
 
+      strip.fill(strip.Color(0, 80, 0)); // Green
+      strip.show();
+      delay(2000);
+      strip.clear();
+      strip.show();
+
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
       last_ntp_sync = millis();
 
@@ -342,32 +527,39 @@ void setup() {
 
 void loop() {
   M5.update();
-
   checkFactoryReset();
 
   if (WiFi.status() != WL_CONNECTED) {
     dnsServer.processNextRequest();
+
+    // Blinking blue light for setup mode
+    long time = millis();
+    strip.clear();
+    if((time / 500) % 2 == 0) {
+      strip.setPixelColor(0, strip.Color(0, 0, 80)); // Blue
+    }
+    strip.show();
+  } else { // WiFi is connected
+    battery_level = M5.Power.getBatteryLevel();
+
+    if (battery_level <= 5 && (millis() - last_battery_warning) > 300000) {
+      lowBatteryWarning(battery_level);
+      last_battery_warning = millis();
+    }
+
+    if ((millis() - last_screen_update) > 5000) {
+      updateScreen();
+      last_screen_update = millis();
+    }
+
+    if ((millis() - last_ntp_sync) > 3600000) {
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      last_ntp_sync = millis();
+    }
+
+    updateTimers();
+    updateLeds();
   }
-
-  battery_level = M5.Power.getBatteryLevel();
-
-  if (battery_level <= 5 && (millis() - last_battery_warning) > 300000) {
-    lowBatteryWarning(battery_level);
-    last_battery_warning = millis();
-  }
-
-  if ((millis() - last_screen_update) > 5000) {
-    updateScreen();
-    last_screen_update = millis();
-  }
-
-  if ((millis() - last_ntp_sync) > 3600000) {
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    last_ntp_sync = millis();
-  }
-
-  updateTimers();
-  updateLeds();
 
   delay(100);
 }
